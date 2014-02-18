@@ -10,7 +10,7 @@ include_recipe 'python'
 
 require 'fileutils'
 chef_gem 'rubyzip' do
-  version '0.9.10'
+  version '0.9.9'
   action :install
 end
 
