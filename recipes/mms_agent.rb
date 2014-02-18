@@ -13,6 +13,7 @@ chef_gem 'rubyzip' do
   version '0.9.9'
   action :install
 end
+chef_gem 'zip-zip'
 
 # munin-node for hardware info
 package node.mongodb.mms_agent.munin_package do
@@ -38,10 +39,10 @@ bash 'unzip mms-monitoring-agent' do
   action :nothing
   only_if do
     def checksum_zip_contents(zipfile)
-      require 'zip/filesystem'
+      require 'zip/zip'
       require 'digest'
 
-      files = Zip::File.open(zipfile).collect.reject { |f| f.name_is_directory? }.sort
+      files = Zip::ZipFile.open(zipfile).collect.reject { |f| f.name_is_directory? }.sort
       content = files.map { |f| f.get_input_stream.read }.join
       Digest::SHA256.hexdigest content
     end
