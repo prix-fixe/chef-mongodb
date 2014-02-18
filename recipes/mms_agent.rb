@@ -9,7 +9,10 @@
 include_recipe 'python'
 
 require 'fileutils'
-chef_gem 'rubyzip'
+chef_gem 'rubyzip' do
+  version '0.9.10'
+  action :install
+end
 
 # munin-node for hardware info
 package node.mongodb.mms_agent.munin_package do
