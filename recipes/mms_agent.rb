@@ -13,7 +13,6 @@ chef_gem 'rubyzip' do
   version '0.9.9'
   action :install
 end
-chef_gem 'zip-zip'
 
 # munin-node for hardware info
 package node.mongodb.mms_agent.munin_package do
