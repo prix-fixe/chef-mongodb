@@ -98,7 +98,7 @@ ruby_block 'modify settings.py' do
       mms_agent_version = /settingsAgentVersion = "(.*)"/.match(s)[1]
       node.default.mongodb.mms_agent.version = mms_agent_version
 
-      notifies :enable, mms_agent_service, :delayed
+      # notifies :enable, mms_agent_service, :delayed
       notifies :restart, mms_agent_service, :delayed
     end
   end
