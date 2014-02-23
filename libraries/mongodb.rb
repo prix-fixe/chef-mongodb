@@ -47,53 +47,21 @@ class Chef::ResourceDefinitionList::MongoDB
       return
     end
 
-    # Want the node originating the connection to be included in the replicaset
-    members << node unless members.any? { |m| m.name == node.name }
-    members.sort! { |x, y| x.name <=> y.name }
-    rs_members = []
-    rs_options = {}
-    members.each_index do |n|
-      host = "#{members[n]['fqdn']}:#{members[n]['mongodb']['config']['port']}"
-      rs_options[host] = {}
-      rs_options[host]['arbiterOnly'] = true if members[n]['mongodb']['replica_arbiter_only']
-      rs_options[host]['buildIndexes'] = false unless members[n]['mongodb']['replica_build_indexes']
-      rs_options[host]['hidden'] = true if members[n]['mongodb']['replica_hidden']
-      slave_delay = members[n]['mongodb']['replica_slave_delay']
-      rs_options[host]['slaveDelay'] = slave_delay if slave_delay > 0
-      if rs_options[host]['buildIndexes'] == false || rs_options[host]['hidden'] || rs_options[host]['slaveDelay']
-        priority = 0
-      else
-        priority = members[n]['mongodb']['replica_priority']
-      end
-      rs_options[host]['priority'] = priority unless priority == 1
-      tags = members[n]['mongodb']['replica_tags'].to_hash
-      rs_options[host]['tags'] = tags unless tags.empty?
-      votes = members[n]['mongodb']['replica_votes']
-      rs_options[host]['votes'] = votes unless votes == 1
-      rs_members << { '_id' => n, 'host' => host }.merge(rs_options[host])
-    end
-
     Chef::Log.info(
-      "Configuring replicaset with members #{members.map { |n| n['hostname'] }.join(', ')}"
+      "Configuring replicaset with members #{members.map { |n| n['host'] }.join(', ')}"
     )
-
-    rs_member_ips = []
-    members.each_index do |n|
-      port = members[n]['mongodb']['config']['port']
-      rs_member_ips << { '_id' => n, 'host' => "#{members[n]['ipaddress']}:#{port}" }
-    end
 
     admin = connection['admin']
     cmd = BSON::OrderedHash.new
     cmd['replSetInitiate'] = {
         '_id' => name,
-        'members' => rs_members
+        'members' => members
     }
 
     begin
       result = admin.command(cmd, :check_response => false)
     rescue Mongo::OperationTimeout
-      Chef::Log.info('Started configuring the replicaset, this will take some time, another run should run smoothly')
+      Chef::Log.warn('Started configuring the replicaset, this will take some time, another run should run smoothly')
       return
     end
     if result.fetch('ok', nil) == 1
@@ -109,67 +77,25 @@ class Chef::ResourceDefinitionList::MongoDB
       # check if both configs are the same
       config = connection['local']['system']['replset'].find_one('_id' => name)
 
-      if config['_id'] == name && config['members'] == rs_members
+      if config['_id'] == name && config['members'] == members
         # config is up-to-date, do nothing
         Chef::Log.info("Replicaset '#{name}' already configured")
-      elsif config['_id'] == name && config['members'] == rs_member_ips
-        # config is up-to-date, but ips are used instead of hostnames, change config to hostnames
-        Chef::Log.info("Need to convert ips to hostnames for replicaset '#{name}'")
-        old_members = config['members'].map { |m| m['host'] }
-        mapping = {}
-        rs_member_ips.each do |mem_h|
-          members.each do |n|
-            ip, prt = mem_h['host'].split(':')
-            mapping["#{ip}:#{prt}"] = "#{n['fqdn']}:#{prt}" if ip == n['ipaddress']
-          end
-        end
-        config['members'].map! do |m|
-          host = mapping[m['host']]
-          { '_id' => m['_id'], 'host' => host }.merge(rs_options[host])
-        end
-        config['version'] += 1
-
-        rs_connection = nil
-        rescue_connection_failure do
-          rs_connection = Mongo::ReplSetConnection.new(old_members)
-          rs_connection.database_names # check connection
-        end
-
-        admin = rs_connection['admin']
-        cmd = BSON::OrderedHash.new
-        cmd['replSetReconfig'] = config
-        result = nil
-        begin
-          result = admin.command(cmd, :check_response => false)
-        rescue Mongo::ConnectionFailure
-          # reconfiguring destroys exisiting connections, reconnect
-          connection = Mongo::Connection.new('localhost', node['mongodb']['config']['port'], :op_timeout => 5, :slave_ok => true)
-          config = connection['local']['system']['replset'].find_one('_id' => name)
-          # Validate configuration change
-          if config['members'] == rs_members
-            Chef::Log.info("New config successfully applied: #{config.inspect}")
-          else
-            Chef::Log.error("Failed to apply new config. Current config: #{config.inspect} Target config #{rs_members}")
-            return
-          end
-        end
-        Chef::Log.error("configuring replicaset returned: #{result.inspect}") unless result.fetch('errmsg', nil).nil?
       else
         # remove removed members from the replicaset and add the new ones
         max_id = config['members'].map { |member| member['_id'] }.max
-        rs_members.map! { |member| member['host'] }
+        members.map! { |member| member['host'] }
         config['version'] += 1
         old_members = config['members'].map { |member| member['host'] }
-        members_delete = old_members - rs_members
+        members_delete = old_members - members
         config['members'] = config['members'].delete_if { |m| members_delete.include?(m['host']) }
         config['members'].map! do |m|
           host = m['host']
-          { '_id' => m['_id'], 'host' => host }.merge(rs_options[host])
+          { '_id' => m['_id'], 'host' => host }
         end
-        members_add = rs_members - old_members
+        members_add = members - old_members
         members_add.each do |m|
           max_id += 1
-          config['members'] << { '_id' => max_id, 'host' => m }.merge(rs_options[m])
+          config['members'] << { '_id' => max_id, 'host' => m }
         end
 
         rs_connection = nil
@@ -191,10 +117,10 @@ class Chef::ResourceDefinitionList::MongoDB
           connection = Mongo::Connection.new('localhost', node['mongodb']['config']['port'], :op_timeout => 5, :slave_ok => true)
           config = connection['local']['system']['replset'].find_one('_id' => name)
           # Validate configuration change
-          if config['members'] == rs_members
+          if config['members'] == members
             Chef::Log.info("New config successfully applied: #{config.inspect}")
           else
-            Chef::Log.error("Failed to apply new config. Current config: #{config.inspect} Target config #{rs_members}")
+            Chef::Log.error("Failed to apply new config. Current config: #{config.inspect} Target config #{members}")
             return
           end
         end
