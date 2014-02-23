@@ -201,9 +201,10 @@ define :mongodb_instance,
   if new_resource.is_replicaset && new_resource.auto_configure_replicaset
     rs_nodes = []
     node['opsworks']['layers'].each do |name, layer|
-      return unless name.match(/mongodb/)
-      layer['instances'].each do |i_name, attributes|
-        rs_nodes << { '_id' => rs_nodes.length, 'host' => i_name }
+      if name.match(/mongodb/)
+        layer['instances'].each do |i_name, attributes|
+          rs_nodes << { '_id' => rs_nodes.length, 'host' => i_name }
+        end
       end
     end
 
