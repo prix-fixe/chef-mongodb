@@ -72,9 +72,16 @@ class Chef::ResourceDefinitionList::MongoDB
 
     begin
       connection = nil
+      db = nil
       rescue_connection_failure do
-        connection = Mongo::Connection.new('localhost', node['mongodb']['config']['port'], :op_timeout => 5, :slave_ok => true)
-        connection.database_names # check connection
+        connection = Mongo::MongoClient.new('localhost', node['mongodb']['config']['port'], :op_timeout => 5, :slave_ok => true)
+        db = connection.db("admin")
+        username = node['mongodb']['username']
+        if username
+          password = node['mongodb']['password']
+          auth = db.authenticate(username, password)
+          Chef::Log.info("DB auth result #{auth} for #{username}:#{password}")
+        end
       end
     rescue => e
       Chef::Log.warn("Could not connect to database: 'localhost:#{node['mongodb']['config']['port']}', reason: #{e}")
@@ -85,7 +92,6 @@ class Chef::ResourceDefinitionList::MongoDB
       "Configuring replicaset with members #{members.map { |n| n['host'] }.join(', ')}"
     )
 
-    admin = connection['admin']
     cmd = BSON::OrderedHash.new
     cmd['replSetInitiate'] = {
         '_id' => name,
@@ -93,7 +99,7 @@ class Chef::ResourceDefinitionList::MongoDB
     }
 
     begin
-      result = admin.command(cmd, :check_response => false)
+      result = db.command(cmd, :check_response => false)
     rescue Mongo::OperationTimeout
       Chef::Log.warn('Started configuring the replicaset, this will take some time, another run should run smoothly')
       return
@@ -103,7 +109,7 @@ class Chef::ResourceDefinitionList::MongoDB
     elsif result.fetch('errmsg', nil) =~ /(\S+) is already initiated/ || (result.fetch('errmsg', nil) == 'already initialized')
       server, port = Regexp.last_match.nil? || Regexp.last_match.length < 2 ? ['localhost', node['mongodb']['config']['port']] : Regexp.last_match[1].split(':')
       begin
-        connection = Mongo::Connection.new(server, port, :op_timeout => 5, :slave_ok => true)
+        connection = Mongo::MongoClient.new(server, port, :op_timeout => 5, :slave_ok => true)
       rescue
         abort("Could not connect to database: '#{server}:#{port}'")
       end
@@ -133,22 +139,30 @@ class Chef::ResourceDefinitionList::MongoDB
         end
 
         rs_connection = nil
+        rs_db = nil
         rescue_connection_failure do
-          rs_connection = Mongo::ReplSetConnection.new(old_members)
-          rs_connection.database_names # check connection
+          rs_connection = Mongo::MongoReplicaSetClient.new(old_members)
+          rs_db = connection.db("admin")
+          username = node['mongodb']['username']
+          if username
+            password = node['mongodb']['password']
+            auth = rs_db.authenticate(username, password)
+            Chef::Log.info("RS DB auth result #{auth} for #{username}:#{password}")
+          end
         end
-
-        admin = rs_connection['admin']
 
         cmd = BSON::OrderedHash.new
         cmd['replSetReconfig'] = config
 
         result = nil
         begin
-          result = admin.command(cmd, :check_response => false)
+          result = rs_db.command(cmd, :check_response => false)
         rescue Mongo::ConnectionFailure
           # reconfiguring destroys exisiting connections, reconnect
-          connection = Mongo::Connection.new('localhost', node['mongodb']['config']['port'], :op_timeout => 5, :slave_ok => true)
+          connection = nil
+          rescue_connection_failure do
+            connection = Mongo::MongoClient.new('localhost', node['mongodb']['config']['port'], :op_timeout => 5, :slave_ok => true)
+          end
           config = connection['local']['system']['replset'].find_one('_id' => name)
           # Validate configuration change
           if config['members'] == members

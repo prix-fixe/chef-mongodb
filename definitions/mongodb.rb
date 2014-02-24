@@ -89,6 +89,10 @@ define :mongodb_instance,
   new_resource.username                   = node['mongodb']['username']
   new_resource.password                   = node['mongodb']['password']
   new_resource.user_roles                 = node['mongodb']['user_roles']
+  new_resource.db_username                = node['mongodb']['db_username']
+  new_resource.db_password                = node['mongodb']['db_password']
+  new_resource.db_user_roles              = node['mongodb']['db_user_roles']
+  new_resource.auth_db                    = node['mongodb']['auth_db']
 
   if node['mongodb']['apt_repo'] == 'ubuntu-upstart'
     new_resource.init_file = File.join(node['mongodb']['init_dir'], "#{new_resource.name}.conf")
@@ -200,6 +204,38 @@ define :mongodb_instance,
     ignore_failure true if new_resource.name == 'mongodb'
   end
 
+  if new_resource.username
+    execute 'add_user' do
+      db_user = {
+        :user => new_resource.db_username,
+        :pwd => new_resource.db_password,
+        :roles => new_resource.db_user_roles
+      }
+      db_user_cmd = "mongo #{new_resource.auth_db} --eval 'db.addUser(#{db_user.to_json})'"
+      admin_user = {
+        :user => new_resource.username,
+        :pwd => new_resource.password,
+        :roles => new_resource.user_roles
+      }
+      admin_user_cmd = "mongo admin --eval 'db.addUser(#{admin_user.to_json})'"
+      command "#{db_user_cmd} && #{admin_user_cmd}"
+      action :nothing
+      notifies new_resource.reload_action, "service[#{new_resource.name}]"
+    end
+
+    ruby_block 'run_add_user' do
+      block {}
+      notifies :run, 'execute[add_user]'
+    end
+    # ruby_block 'add_user' do
+    #   block do
+    #     MongoDB.add_user(new_resource.replicaset, new_resource.username, new_resource.password, new_resource.user_roles)
+    #   end
+    #   action :create
+    #   notifies new_resource.reload_action, "service[#{new_resource.name}]"
+    # end
+  end
+
   # replicaset
   if new_resource.is_replicaset && new_resource.auto_configure_replicaset
     rs_nodes = []
@@ -223,32 +259,6 @@ define :mongodb_instance,
       notifies :create, 'ruby_block[config_replicaset]'
     end
   end
-
-  if new_resource.username
-    execute 'add_user' do
-      admin_user = {
-        :user => new_resource.username,
-        :pwd => new_resource.password,
-        :roles => new_resource.user_roles
-      }
-      command "mongo admin --eval 'db.addUser(#{admin_user.to_json})'"
-      action :nothing
-      notifies new_resource.reload_action, "service[#{new_resource.name}]"
-    end
-
-    ruby_block 'run_add_user' do
-      block {}
-      notifies :run, 'execute[add_user]'
-    end
-    # ruby_block 'add_user' do
-    #   block do
-    #     MongoDB.add_user(new_resource.replicaset, new_resource.username, new_resource.password, new_resource.user_roles)
-    #   end
-    #   action :create
-    #   notifies new_resource.reload_action, "service[#{new_resource.name}]"
-    # end
-  end
-
 
   # sharding
   if new_resource.type == 'mongos' && new_resource.auto_configure_sharding
