@@ -225,13 +225,17 @@ define :mongodb_instance,
   end
 
   if new_resource.username
-    ruby_block 'add_user' do
-      block do
-        MongoDB.add_user(new_resource.replicaset, new_resource.username, new_resource.password, new_resource.user_roles)
-      end
-      action :create
-      notifies new_resource.reload_action, "service[#{new_resource.name}]"
+    execute 'add_user' do
+      command "mongo admin --eval \"db.addUser({user: '#{new_resource.username}', pwd: '#{new_resource.password}', roles: #{new_resource.user_roles}})\""
+      action :run
     end
+    # ruby_block 'add_user' do
+    #   block do
+    #     MongoDB.add_user(new_resource.replicaset, new_resource.username, new_resource.password, new_resource.user_roles)
+    #   end
+    #   action :create
+    #   notifies new_resource.reload_action, "service[#{new_resource.name}]"
+    # end
   end
 
 
