@@ -228,6 +228,7 @@ define :mongodb_instance,
     execute 'add_user' do
       command "mongo admin --eval \"db.addUser({user: '#{new_resource.username}', pwd: '#{new_resource.password}', roles: #{new_resource.user_roles}})\""
       action :run
+      notifies new_resource.reload_action, "service[#{new_resource.name}]"
     end
     # ruby_block 'add_user' do
     #   block do
