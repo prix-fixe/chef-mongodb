@@ -238,7 +238,7 @@ define :mongodb_instance,
 
     ruby_block 'run_add_user' do
       block {}
-      notifies :create, 'execute[add_user]'
+      notifies :run, 'execute[add_user]'
     end
     # ruby_block 'add_user' do
     #   block do
