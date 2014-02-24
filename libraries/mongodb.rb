@@ -38,9 +38,7 @@ class Chef::ResourceDefinitionList::MongoDB
       return
     end
 
-    Chef::Log.info(
-      "Configuring replicaset with members #{members.map { |n| n['host'] }.join(', ')}"
-    )
+    Chef::Log.info("configuring admin user #{username}")
 
     admin = connection['admin']
     cmd = BSON::OrderedHash.new
