@@ -229,7 +229,7 @@ define :mongodb_instance,
       block do
         MongoDB.add_user(new_resource.replicaset, new_resource.username, new_resource.password, new_resource.user_roles)
       end
-      action :nothing
+      action :create
       notifies new_resource.reload_action, "service[#{new_resource.name}]"
     end
   end
