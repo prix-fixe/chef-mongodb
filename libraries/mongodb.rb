@@ -22,6 +22,42 @@
 require 'json'
 
 class Chef::ResourceDefinitionList::MongoDB
+  def self.add_user(node, username, password, user_roles)
+    # lazy require, to move loading this modules to runtime of the cookbook
+    require 'rubygems'
+    require 'mongo'
+
+    begin
+      connection = nil
+      rescue_connection_failure do
+        connection = Mongo::Connection.new('localhost', node['mongodb']['config']['port'], :op_timeout => 5, :slave_ok => true)
+        connection.database_names # check connection
+      end
+    rescue => e
+      Chef::Log.warn("Could not connect to database: 'localhost:#{node['mongodb']['config']['port']}', reason: #{e}")
+      return
+    end
+
+    Chef::Log.info(
+      "Configuring replicaset with members #{members.map { |n| n['host'] }.join(', ')}"
+    )
+
+    admin = connection['admin']
+    cmd = BSON::OrderedHash.new
+    cmd['addUser'] = {
+        'user' => username,
+        'pwd' => password,
+        'roles' => user_roles
+    }
+
+    begin
+      result = admin.command(cmd, :check_response => false)
+    rescue Mongo::OperationTimeout
+      Chef::Log.warn('Started configuring the replicaset, this will take some time, another run should run smoothly')
+      return
+    end
+  end
+
   def self.configure_replicaset(node, name, members)
     # lazy require, to move loading this modules to runtime of the cookbook
     require 'rubygems'

@@ -86,6 +86,9 @@ define :mongodb_instance,
   new_resource.template_cookbook          = node['mongodb']['template_cookbook']
   new_resource.ulimit                     = node['mongodb']['ulimit']
   new_resource.reload_action              = node['mongodb']['reload_action']
+  new_resource.username                   = node['mongodb']['username']
+  new_resource.password                   = node['mongodb']['password']
+  new_resource.user_roles                 = node['mongodb']['user_roles']
 
   if node['mongodb']['apt_repo'] == 'ubuntu-upstart'
     new_resource.init_file = File.join(node['mongodb']['init_dir'], "#{new_resource.name}.conf")
@@ -220,6 +223,17 @@ define :mongodb_instance,
       notifies :create, 'ruby_block[config_replicaset]'
     end
   end
+
+  if new_resource.username
+    ruby_block 'add_user' do
+      block do
+        MongoDB.add_user(new_resource.replicaset, new_resource.username, new_resource.password, new_resource.user_roles)
+      end
+      action :nothing
+      notifies new_resource.reload_action, "service[#{new_resource.name}]"
+    end
+  end
+
 
   # sharding
   if new_resource.type == 'mongos' && new_resource.auto_configure_sharding
