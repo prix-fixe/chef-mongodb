@@ -227,9 +227,9 @@ define :mongodb_instance,
   if new_resource.username
     execute 'add_user' do
       admin_user = {
-        user: new_resource.username,
-        pwd: new_resource.password,
-        roles: new_resource.user_roles
+        :user => new_resource.username,
+        :pwd => new_resource.password,
+        :roles => new_resource.user_roles
       }
       command "mongo admin --eval 'db.addUser(#{admin_user.to_json})'"
       action :nothing
