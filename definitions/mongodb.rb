@@ -231,7 +231,7 @@ define :mongodb_instance,
         pwd: new_resource.password,
         roles: new_resource.user_roles
       }
-      command "mongo admin --eval \"db.addUser(#{admin_user.to_json})\""
+      command "mongo admin --eval 'db.addUser(#{admin_user.to_json})'"
       action :nothing
       notifies new_resource.reload_action, "service[#{new_resource.name}]"
     end
