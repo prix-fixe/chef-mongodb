@@ -100,7 +100,7 @@ class Chef::ResourceDefinitionList::MongoDB
   end
 
   def self.rs_config(node)
-    config_string = exec_mong(node, 'printjson(rs.conf())')
+    config_string = exec_mongo(node, 'printjson(rs.conf())')
     config = JSON.parse(config_string.lines[2..-1].join)
   end
 

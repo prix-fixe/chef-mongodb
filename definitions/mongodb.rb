@@ -229,7 +229,7 @@ define :mongodb_instance,
   end
 
   # authentication
-  if new_resource.username
+  if new_resource.username && !MongoDB.auth_set?(new_resource.replicaset)
     execute 'add_user' do
       db_user = {
         :user => new_resource.db_username,
