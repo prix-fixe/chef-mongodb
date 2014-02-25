@@ -93,6 +93,9 @@ define :mongodb_instance,
   new_resource.db_password                = node['mongodb']['db_password']
   new_resource.db_user_roles              = node['mongodb']['db_user_roles']
   new_resource.auth_db                    = node['mongodb']['auth_db']
+  new_resource.auth_set                   = node['mongodb']['auth_set']
+
+  Chef::Log.info("configuring new_resource auth_set #{new_resource.auth_set}")
 
   if node['mongodb']['apt_repo'] == 'ubuntu-upstart'
     new_resource.init_file = File.join(node['mongodb']['init_dir'], "#{new_resource.name}.conf")
@@ -217,7 +220,7 @@ define :mongodb_instance,
 
     ruby_block 'config_replicaset' do
       block do
-        MongoDB.configure_replicaset(new_resource.replicaset, replicaset_name, rs_nodes) unless new_resource.replicaset.nil?
+        MongoDB.configure_replicaset(new_resource.replicaset, replicaset_name, rs_nodes, new_resource.auth_set) unless new_resource.replicaset.nil?
       end
       action :nothing
     end
@@ -229,7 +232,9 @@ define :mongodb_instance,
   end
 
   # authentication
-  if new_resource.username
+  if new_resource.username && !new_resource.auth_set
+    node.set['mongodb']['auth_set'] = true
+
     execute 'add_user' do
       db_user = {
         :user => new_resource.db_username,
