@@ -37,7 +37,7 @@ class Chef::ResourceDefinitionList::MongoDB
       rescue_connection_failure do
         connection = Mongo::MongoClient.new('localhost', node['mongodb']['config']['port'], :op_timeout => 5, :slave_ok => true)
         db = connection.db("admin")
-        if auth_set?(node)
+        if authenticate?(node)
           auth = db.authenticate(username, password)
           Chef::Log.info("DB auth result #{auth} for #{username}:#{password}")
         end
@@ -46,6 +46,10 @@ class Chef::ResourceDefinitionList::MongoDB
       Chef::Log.warn("Could not connect to database: 'localhost:#{node['mongodb']['config']['port']}', reason: #{e}")
     end
     [connection, db]
+  end
+
+  def self.authenticate?(node)
+    node['mongodb']['username'] && auth_set?(node)
   end
 
   def self.auth_set?(node)
@@ -91,7 +95,7 @@ class Chef::ResourceDefinitionList::MongoDB
     username = node['mongodb']['username']
     password = node['mongodb']['password']
 
-    auth_string = auth_set?(node) ? "-u #{username} -p #{password}" : ''
+    auth_string = authenticate?(node) ? "-u #{username} -p #{password}" : ''
     "mongo admin #{auth_string} --eval '#{cmd}'"
   end
 
@@ -166,7 +170,10 @@ class Chef::ResourceDefinitionList::MongoDB
         rescue_connection_failure do
           rs_connection = Mongo::MongoReplicaSetClient.new(old_members)
           rs_db = rs_connection.db("admin")
-          if auth_set?(node)
+          if authenticate?(node)
+            username = node['mongodb']['username']
+            password = node['mongodb']['password']
+
             auth = rs_db.authenticate(username, password)
             Chef::Log.info("DB auth result #{auth} for #{username}:#{password}")
           end
