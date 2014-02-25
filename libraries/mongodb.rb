@@ -22,60 +22,18 @@
 require 'json'
 
 class Chef::ResourceDefinitionList::MongoDB
-  def self.add_user(node, username, password, user_roles)
+
+  def self.connect(node, auth_set)
     # lazy require, to move loading this modules to runtime of the cookbook
     require 'rubygems'
     require 'mongo'
-
-    begin
-      connection = nil
-      rescue_connection_failure do
-        connection = Mongo::Connection.new('localhost', node['mongodb']['config']['port'], :op_timeout => 5, :slave_ok => true)
-        connection.database_names # check connection
-      end
-    rescue => e
-      Chef::Log.warn("Could not connect to database: 'localhost:#{node['mongodb']['config']['port']}', reason: #{e}")
-      return
-    end
-
-    Chef::Log.info("configuring admin user #{username}")
-
-    admin = connection['admin']
-    cmd = BSON::OrderedHash.new
-    cmd['addUser'] = {
-        'user' => username,
-        'pwd' => password,
-        'roles' => user_roles
-    }
-
-    begin
-      result = admin.command(cmd, :check_response => false)
-    rescue Mongo::OperationTimeout
-      Chef::Log.warn('Started configuring the replicaset, this will take some time, another run should run smoothly')
-      return
-    end
-  end
-
-  def self.configure_replicaset(node, name, members, auth_set)
-    # lazy require, to move loading this modules to runtime of the cookbook
-    require 'rubygems'
-    require 'mongo'
-
-    if members.length == 0
-      if Chef::Config[:solo]
-        abort("Cannot configure replicaset '#{name}', no member nodes found")
-      else
-        Chef::Log.warn("Cannot configure replicaset '#{name}', no member nodes found")
-        return
-      end
-    end
 
     username = node['mongodb']['username']
     password = node['mongodb']['password']
 
+    connection = nil
+    db = nil
     begin
-      connection = nil
-      db = nil
       rescue_connection_failure do
         connection = Mongo::MongoClient.new('localhost', node['mongodb']['config']['port'], :op_timeout => 5, :slave_ok => true)
         db = connection.db("admin")
@@ -86,8 +44,59 @@ class Chef::ResourceDefinitionList::MongoDB
       end
     rescue => e
       Chef::Log.warn("Could not connect to database: 'localhost:#{node['mongodb']['config']['port']}', reason: #{e}")
-      return
     end
+    [connection, db]
+  end
+
+  def self.is_master?(node, auth_set)
+    connection, db = connection(node, auth_set)
+
+    return false unless connection
+
+    cmd = BSON::OrderedHash.new
+    cmd['isMaster'] = 1
+
+    begin
+      result = db.command(cmd, :check_response => false)
+      return result['ismaster']
+    rescue Mongo::OperationTimeout
+      Chef::Log.warn('Started configuring the replicaset, this will take some time, another run should run smoothly')
+      return false
+    end
+
+    return true
+  end
+
+  def self.mongo_shell(node, auth_set, cmd)
+    username = node['mongodb']['username']
+    password = node['mongodb']['password']
+
+    auth_string = auth_set ? "-u #{username} -p #{password}" : ''
+    "mongo admin #{auth_string} --eval 'printjson(rs.conf())'"
+  end
+
+  def self.exec_mongo(node, auth_set, cmd)
+    `#{mongo_shell(node, auth_set, cmd)}`
+  end
+
+  def self.rs_config(node, auth_set)
+    config_string = exec_mong(node, auth_set, 'printjson(rs.conf())'
+    config = JSON.parse(config_string.lines[2..-1].join)
+  end
+
+  def self.configure_replicaset(node, name, members, auth_set)
+    if members.length == 0
+      if Chef::Config[:solo]
+        abort("Cannot configure replicaset '#{name}', no member nodes found")
+      else
+        Chef::Log.warn("Cannot configure replicaset '#{name}', no member nodes found")
+        return
+      end
+    end
+
+    connection, db = connection(node, auth_set)
+
+    return unless connection
 
     Chef::Log.info(
       "Configuring replicaset with members #{members.map { |n| n['host'] }.join(', ')}"
@@ -95,8 +104,8 @@ class Chef::ResourceDefinitionList::MongoDB
 
     cmd = BSON::OrderedHash.new
     cmd['replSetInitiate'] = {
-        '_id' => name,
-        'members' => members
+      '_id' => name,
+      'members' => members
     }
 
     begin
@@ -107,16 +116,9 @@ class Chef::ResourceDefinitionList::MongoDB
     end
     if result.fetch('ok', nil) == 1
       # everything is fine, do nothing
-    elsif result.fetch('errmsg', nil) =~ /(\S+) is already initiated/ || (result.fetch('errmsg', nil) == 'already initialized')
-      server, port = Regexp.last_match.nil? || Regexp.last_match.length < 2 ? ['localhost', node['mongodb']['config']['port']] : Regexp.last_match[1].split(':')
-      begin
-        connection = Mongo::MongoClient.new(server, port, :op_timeout => 5, :slave_ok => true)
-      rescue
-        abort("Could not connect to database: '#{server}:#{port}'")
-      end
-
+    elsif result.fetch('errmsg', nil).match(/already initialized/)
       # check if both configs are the same
-      config = connection['local']['system']['replset'].find_one('_id' => name)
+      config = rs_config(node, auth_set)
 
       if config['_id'] == name && config['members'] == members
         # config is up-to-date, do nothing
@@ -158,9 +160,7 @@ class Chef::ResourceDefinitionList::MongoDB
           result = rs_db.command(cmd, :check_response => false)
         rescue Mongo::ConnectionFailure
 
-          auth_string = auth_set ? "-u #{username} -p #{password}" : ''
-          config_string = `mongo admin #{auth_string} --eval "printjson(rs.conf())"`
-          config = JSON.parse(config_string.lines[2..-1].join)
+          config = rs_config(node, auth_set)
 
           # Validate configuration change
           if config['members'] == members
