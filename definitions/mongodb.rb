@@ -244,6 +244,7 @@ define :mongodb_instance,
       }
       admin_user_cmd = "mongo admin --eval 'db.addUser(#{admin_user.to_json})'"
       command "#{db_user_cmd} && #{admin_user_cmd}"
+      retries 30
       action :nothing
       notifies new_resource.reload_action, "service[#{new_resource.name}]"
     end
@@ -251,7 +252,6 @@ define :mongodb_instance,
     ruby_block 'run_add_user' do
       block {}
       notifies :run, 'execute[add_user]'
-      retries 30
     end
     # ruby_block 'add_user' do
     #   block do
