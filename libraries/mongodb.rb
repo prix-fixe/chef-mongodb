@@ -23,7 +23,7 @@ require 'json'
 
 class Chef::ResourceDefinitionList::MongoDB
 
-  def self.connect(node, auth_set)
+  def self.connect(node)
     # lazy require, to move loading this modules to runtime of the cookbook
     require 'rubygems'
     require 'mongo'
@@ -37,7 +37,7 @@ class Chef::ResourceDefinitionList::MongoDB
       rescue_connection_failure do
         connection = Mongo::MongoClient.new('localhost', node['mongodb']['config']['port'], :op_timeout => 5, :slave_ok => true)
         db = connection.db("admin")
-        if auth_set
+        if auth_set?(node)
           auth = db.authenticate(username, password)
           Chef::Log.info("DB auth result #{auth} for #{username}:#{password}")
         end
@@ -48,8 +48,30 @@ class Chef::ResourceDefinitionList::MongoDB
     [connection, db]
   end
 
-  def self.is_master?(node, auth_set)
-    connection, db = connection(node, auth_set)
+  def self.auth_set?(node)
+    @auth_set ||= get_auth_set(node)
+  end
+
+  def self.get_auth_set(node)
+    # lazy require, to move loading this modules to runtime of the cookbook
+    require 'rubygems'
+    require 'mongo'
+
+    username = node['mongodb']['username']
+    password = node['mongodb']['password']
+
+    connection = Mongo::MongoClient.new('localhost', node['mongodb']['config']['port'])
+    db = connection.db("admin")
+    begin
+      db.authenticate(username, password)
+    rescue => e
+      return false
+    end
+    return true
+  end
+
+  def self.is_master?(node)
+    connection, db = connection(node)
 
     return false unless connection
 
@@ -63,28 +85,26 @@ class Chef::ResourceDefinitionList::MongoDB
       Chef::Log.warn('Started configuring the replicaset, this will take some time, another run should run smoothly')
       return false
     end
-
-    return true
   end
 
-  def self.mongo_shell(node, auth_set, cmd)
+  def self.mongo_shell(node, cmd)
     username = node['mongodb']['username']
     password = node['mongodb']['password']
 
-    auth_string = auth_set ? "-u #{username} -p #{password}" : ''
-    "mongo admin #{auth_string} --eval 'printjson(rs.conf())'"
+    auth_string = auth_set?(node) ? "-u #{username} -p #{password}" : ''
+    "mongo admin #{auth_string} --eval '#{cmd}'"
   end
 
-  def self.exec_mongo(node, auth_set, cmd)
-    `#{mongo_shell(node, auth_set, cmd)}`
+  def self.exec_mongo(node, cmd)
+    `#{mongo_shell(node, cmd)}`
   end
 
-  def self.rs_config(node, auth_set)
-    config_string = exec_mong(node, auth_set, 'printjson(rs.conf())'
+  def self.rs_config(node)
+    config_string = exec_mong(node, 'printjson(rs.conf())')
     config = JSON.parse(config_string.lines[2..-1].join)
   end
 
-  def self.configure_replicaset(node, name, members, auth_set)
+  def self.configure_replicaset(node, name, members)
     if members.length == 0
       if Chef::Config[:solo]
         abort("Cannot configure replicaset '#{name}', no member nodes found")
@@ -94,7 +114,7 @@ class Chef::ResourceDefinitionList::MongoDB
       end
     end
 
-    connection, db = connection(node, auth_set)
+    connection, db = connection(node)
 
     return unless connection
 
@@ -118,7 +138,7 @@ class Chef::ResourceDefinitionList::MongoDB
       # everything is fine, do nothing
     elsif result.fetch('errmsg', nil).match(/already initialized/)
       # check if both configs are the same
-      config = rs_config(node, auth_set)
+      config = rs_config(node)
 
       if config['_id'] == name && config['members'] == members
         # config is up-to-date, do nothing
@@ -146,8 +166,8 @@ class Chef::ResourceDefinitionList::MongoDB
         rescue_connection_failure do
           rs_connection = Mongo::MongoReplicaSetClient.new(old_members)
           rs_db = connection.db("admin")
-          if auth_set
-            auth = db.authenticate(username, password)
+          if auth_set?(node)
+            auth = rs_db.authenticate(username, password)
             Chef::Log.info("DB auth result #{auth} for #{username}:#{password}")
           end
         end
@@ -160,7 +180,7 @@ class Chef::ResourceDefinitionList::MongoDB
           result = rs_db.command(cmd, :check_response => false)
         rescue Mongo::ConnectionFailure
 
-          config = rs_config(node, auth_set)
+          config = rs_config(node)
 
           # Validate configuration change
           if config['members'] == members
