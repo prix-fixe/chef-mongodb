@@ -101,7 +101,7 @@ class Chef::ResourceDefinitionList::MongoDB
 
   def self.rs_config(node)
     config_string = exec_mongo(node, 'printjson(rs.conf())')
-    config = JSON.parse(config_string.lines[2..-1].join)
+    config = JSON.parse(config_string.lines.drop(2).join)
   end
 
   def self.configure_replicaset(node, name, members)
