@@ -79,7 +79,11 @@ class Chef::ResourceDefinitionList::MongoDB
         username = node['mongodb']['username']
         if username
           password = node['mongodb']['password']
-          auth = db.authenticate(username, password)
+          begin
+            auth = db.authenticate(username, password)
+          rescue => e
+            auth = false
+          end
           Chef::Log.info("DB auth result #{auth} for #{username}:#{password}")
         end
       end
@@ -146,7 +150,11 @@ class Chef::ResourceDefinitionList::MongoDB
           username = node['mongodb']['username']
           if username
             password = node['mongodb']['password']
-            auth = rs_db.authenticate(username, password)
+            begin
+              auth = db.authenticate(username, password)
+            rescue => e
+              auth = false
+            end
             Chef::Log.info("RS DB auth result #{auth} for #{username}:#{password}")
           end
         end
