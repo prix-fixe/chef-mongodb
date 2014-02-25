@@ -229,7 +229,7 @@ define :mongodb_instance,
   end
 
   # authentication
-  if new_resource.username && !MongoDB.auth_set?(new_resource.replicaset)
+  if new_resource.username
     execute 'add_user' do
       db_user = {
         :user => new_resource.db_username,
@@ -244,6 +244,7 @@ define :mongodb_instance,
       }
       admin_user_cmd = "mongo admin --eval 'db.addUser(#{admin_user.to_json})'"
       command "#{db_user_cmd} && #{admin_user_cmd}"
+      only_if do !MongoDB.auth_set?(new_resource.replicaset) end
       retries 30
       action :nothing
       notifies new_resource.reload_action, "service[#{new_resource.name}]"

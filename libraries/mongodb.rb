@@ -60,14 +60,14 @@ class Chef::ResourceDefinitionList::MongoDB
     username = node['mongodb']['username']
     password = node['mongodb']['password']
 
-    connection = Mongo::MongoClient.new('localhost', node['mongodb']['config']['port'])
-    db = connection.db("admin")
     begin
+      connection = Mongo::MongoClient.new('localhost', node['mongodb']['config']['port'])
+      db = connection.db("admin")
       db.authenticate(username, password)
+      return true
     rescue => e
       return false
     end
-    return true
   end
 
   def self.is_master?(node)
