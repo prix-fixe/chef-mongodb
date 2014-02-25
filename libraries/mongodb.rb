@@ -71,7 +71,7 @@ class Chef::ResourceDefinitionList::MongoDB
   end
 
   def self.is_master?(node)
-    connection, db = connection(node)
+    connection, db = connect(node)
 
     return false unless connection
 
@@ -114,7 +114,7 @@ class Chef::ResourceDefinitionList::MongoDB
       end
     end
 
-    connection, db = connection(node)
+    connection, db = connect(node)
 
     return unless connection
 
@@ -165,7 +165,7 @@ class Chef::ResourceDefinitionList::MongoDB
         rs_db = nil
         rescue_connection_failure do
           rs_connection = Mongo::MongoReplicaSetClient.new(old_members)
-          rs_db = connection.db("admin")
+          rs_db = rs_connection.db("admin")
           if auth_set?(node)
             auth = rs_db.authenticate(username, password)
             Chef::Log.info("DB auth result #{auth} for #{username}:#{password}")
